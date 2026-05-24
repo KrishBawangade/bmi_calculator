@@ -14,8 +14,8 @@ class BMICalculatorApp(ctk.CTk):
 
         # Window settings
         self.title("BMI Calculator")
-        self.geometry("1000x650")
-        self.minsize(980, 620)
+        self.geometry("1120x680")
+        self.minsize(1120, 680)
         
         # Default appearance
         ctk.set_appearance_mode("Light")
@@ -62,7 +62,9 @@ class BMICalculatorApp(ctk.CTk):
         self.history_view = HistoryView(
             parent=self.container_frame,
             data_manager=self.data_manager,
-            get_active_user_id_cb=self.get_active_user_id
+            get_active_user_id_cb=self.get_active_user_id,
+            on_delete_record_cb=self.on_delete_record,
+            get_unit_system_cb=self.get_unit_system
         )
 
         self.views = {
@@ -177,3 +179,13 @@ class BMICalculatorApp(ctk.CTk):
 
         self.data_manager.add_history_record(active_id, w_kg, h_cm, bmi, category)
         messagebox.showinfo("Record Logged", f"Weight record (BMI: {bmi:.1f}) saved successfully for {user_name}!")
+
+    def on_delete_record(self, record_id):
+        """Deletes a history record and updates the view."""
+        self.data_manager.delete_history_record(record_id)
+        self.history_view.refresh_history_tab()
+
+    def get_unit_system(self):
+        """Returns current unit system from calculator view."""
+        return self.calculator_view.unit_toggle.get()
+

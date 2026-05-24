@@ -5,15 +5,17 @@ import matplotlib.pyplot as plt
 import src.constants as const
 
 class HistoryView(ctk.CTkFrame):
-    def __init__(self, parent, data_manager, get_active_user_id_cb):
+    def __init__(self, parent, data_manager, get_active_user_id_cb, on_delete_record_cb, get_unit_system_cb):
         super().__init__(parent, fg_color="transparent")
         
         self.data_manager = data_manager
         self.get_active_user_id_cb = get_active_user_id_cb
+        self.on_delete_record_cb = on_delete_record_cb
+        self.get_unit_system_cb = get_unit_system_cb
         self.canvas_widget = None
 
-        self.grid_columnconfigure(0, weight=2)
-        self.grid_columnconfigure(1, weight=3)
+        self.grid_columnconfigure(0, weight=5)
+        self.grid_columnconfigure(1, weight=4)
         self.grid_rowconfigure(0, weight=1)
         self.grid_rowconfigure(1, weight=1)
 
@@ -60,7 +62,7 @@ class HistoryView(ctk.CTkFrame):
         )
         records_frame.grid(row=1, column=0, sticky="nsew")
         records_frame.grid_columnconfigure(0, weight=1)
-        records_frame.grid_rowconfigure(1, weight=1)
+        records_frame.grid_rowconfigure(2, weight=1) # Row 0: title, Row 1: header, Row 2: scrollable frame
 
         table_title = ctk.CTkLabel(
             records_frame, 
@@ -70,13 +72,32 @@ class HistoryView(ctk.CTkFrame):
         )
         table_title.grid(row=0, column=0, padx=20, pady=(15, 5), sticky="w")
 
+        # Static Table Header Row
+        self.header_frame = ctk.CTkFrame(records_frame, fg_color="transparent", height=25)
+        self.header_frame.grid(row=1, column=0, padx=20, pady=(5, 5), sticky="ew")
+        self.header_frame.grid_columnconfigure(0, weight=4)
+        self.header_frame.grid_columnconfigure(1, weight=3)
+        self.header_frame.grid_columnconfigure(2, weight=2)
+        self.header_frame.grid_columnconfigure(3, weight=4)
+        self.header_frame.grid_columnconfigure(4, weight=2)
+
+        headers = ["Date", "Weight", "BMI Score", "Category", ""]
+        for col, text in enumerate(headers):
+            lbl = ctk.CTkLabel(
+                self.header_frame, 
+                text=text, 
+                font=ctk.CTkFont(size=12, weight="bold"),
+                text_color=const.COLOR_TEXT_MUTED,
+                anchor="w" if col == 0 else "center"
+            )
+            lbl.grid(row=0, column=col, padx=(15, 5) if col == 0 else 5, sticky="ew")
+
         # Scrollable table container
         self.records_scroll = ctk.CTkScrollableFrame(
             records_frame, 
             fg_color="transparent"
         )
-        self.records_scroll.grid(row=1, column=0, padx=15, pady=(0, 15), sticky="nsew")
-        self.records_scroll.grid_columnconfigure((0, 1, 2, 3), weight=1)
+        self.records_scroll.grid(row=2, column=0, padx=15, pady=(0, 15), sticky="nsew")
 
     def setup_right_plot(self):
         chart_card = ctk.CTkFrame(
@@ -140,24 +161,27 @@ class HistoryView(ctk.CTkFrame):
 
         active_id = self.get_active_user_id_cb()
         records = self.data_manager.get_user_history(active_id)
+        unit_system = self.get_unit_system_cb()
 
-        # Headers
-        headers = ["Date", "Weight", "BMI Score", "Category"]
-        for col, text in enumerate(headers):
-            lbl = ctk.CTkLabel(
-                self.records_scroll, 
-                text=text, 
-                font=ctk.CTkFont(size=12, weight="bold"),
-                text_color=const.COLOR_TEXT_MUTED,
-                anchor="center"
+        if not records:
+            empty_lbl = ctk.CTkLabel(
+                self.records_scroll,
+                text="No weight records saved yet.",
+                font=ctk.CTkFont(size=13),
+                text_color=const.COLOR_TEXT_MUTED
             )
-            lbl.grid(row=0, column=col, padx=5, pady=(5, 10), sticky="ew")
+            empty_lbl.pack(pady=30)
+            return
 
         # Rows
-        for row, rec in enumerate(records, start=1):
-            weight_text = f"{rec['weight']:.1f} kg"
+        for rec in records:
+            if unit_system == "Imperial":
+                weight_val = rec["weight"] / 0.45359237
+                weight_text = f"{weight_val:.1f} lbs"
+            else:
+                weight_text = f"{rec['weight']:.1f} kg"
+
             cat = rec["category"]
-            
             if cat == "Underweight":
                 cat_color = const.COLOR_UNDERWEIGHT
             elif cat == "Normal":
@@ -167,14 +191,80 @@ class HistoryView(ctk.CTkFrame):
             else:
                 cat_color = const.COLOR_OBESE
 
-            ctk.CTkLabel(self.records_scroll, text=rec["date"], font=ctk.CTkFont(size=12), text_color=const.COLOR_TEXT).grid(row=row, column=0, padx=5, pady=4)
-            ctk.CTkLabel(self.records_scroll, text=weight_text, font=ctk.CTkFont(size=12), text_color=const.COLOR_TEXT).grid(row=row, column=1, padx=5, pady=4)
-            ctk.CTkLabel(self.records_scroll, text=f"{rec['bmi']:.1f}", font=ctk.CTkFont(size=12, weight="bold"), text_color=const.COLOR_TEXT).grid(row=row, column=2, padx=5, pady=4)
-            
-            badge = ctk.CTkFrame(self.records_scroll, fg_color=cat_color, corner_radius=6, height=20)
-            badge.grid(row=row, column=3, padx=5, pady=4)
-            badge_lbl = ctk.CTkLabel(badge, text=cat, font=ctk.CTkFont(size=10, weight="bold"), text_color="#FFFFFF", padx=6)
+            card = ctk.CTkFrame(
+                self.records_scroll, 
+                fg_color=const.COLOR_BG, 
+                corner_radius=10,
+                border_width=1,
+                border_color=const.COLOR_BORDER
+            )
+            card.pack(fill="x", pady=5, padx=(5, 12))
+
+            card.grid_columnconfigure(0, weight=4)
+            card.grid_columnconfigure(1, weight=3)
+            card.grid_columnconfigure(2, weight=2)
+            card.grid_columnconfigure(3, weight=4)
+            card.grid_columnconfigure(4, weight=2)
+
+            date_lbl = ctk.CTkLabel(card, text=rec["date"], font=ctk.CTkFont(size=12), text_color=const.COLOR_TEXT, anchor="w")
+            date_lbl.grid(row=0, column=0, padx=(15, 5), pady=8, sticky="w")
+
+            weight_lbl = ctk.CTkLabel(card, text=weight_text, font=ctk.CTkFont(size=12), text_color=const.COLOR_TEXT, anchor="center")
+            weight_lbl.grid(row=0, column=1, padx=5, pady=8, sticky="ew")
+
+            bmi_lbl = ctk.CTkLabel(card, text=f"{rec['bmi']:.1f}", font=ctk.CTkFont(size=12, weight="bold"), text_color=const.COLOR_TEXT, anchor="center")
+            bmi_lbl.grid(row=0, column=2, padx=5, pady=8, sticky="ew")
+
+            badge = ctk.CTkFrame(card, fg_color=cat_color, corner_radius=6, height=20)
+            badge.grid(row=0, column=3, padx=5, pady=8)
+            badge_lbl = ctk.CTkLabel(badge, text=cat, font=ctk.CTkFont(size=10, weight="bold"), text_color="#FFFFFF", padx=8)
             badge_lbl.pack()
+
+            # Delete Button
+            delete_btn = ctk.CTkButton(
+                card,
+                text="🗑",
+                width=24,
+                height=24,
+                fg_color="transparent",
+                hover_color=const.COLOR_BORDER,
+                text_color="#E76F51",
+                font=ctk.CTkFont(size=14),
+                command=lambda r_id=rec["id"]: self.delete_record(r_id)
+            )
+            delete_btn.grid(row=0, column=4, padx=5, pady=8)
+
+            # Hover animations
+            card.bind("<Enter>", lambda e, c=card: c.configure(border_color=const.COLOR_ACCENT))
+            card.bind("<Leave>", lambda e, c=card: c.configure(border_color=const.COLOR_BORDER))
+            
+            # Bind clicks to load record into calculator
+            for widget in [card, date_lbl, weight_lbl, bmi_lbl, badge, badge_lbl]:
+                widget.bind("<Button-1>", lambda e, r=rec: self.load_record_to_calculator(r))
+
+    def delete_record(self, record_id):
+        """Displays confirmation dialog and deletes a record."""
+        from tkinter import messagebox
+        confirm = messagebox.askyesno("Confirm Delete", "Are you sure you want to delete this historical log entry?")
+        if confirm:
+            self.on_delete_record_cb(record_id)
+
+    def load_record_to_calculator(self, record):
+        """Loads record values back into the Calculator view and switches tabs."""
+        app = self.winfo_toplevel()
+        if hasattr(app, "calculator_view") and hasattr(app, "select_tab"):
+            h = record["height"]
+            w = record["weight"]
+            
+            unit_system = app.calculator_view.unit_toggle.get()
+            if unit_system == "Metric":
+                app.calculator_view.set_inputs(h, w)
+            else:
+                h_in = h / 2.54
+                w_lb = w / 0.45359237
+                app.calculator_view.set_inputs(h_in, w_lb)
+                
+            app.select_tab("calculator")
 
     def refresh_matplotlib_chart(self):
         """Plots the historical progression graph, styling it for active theme."""
@@ -230,6 +320,7 @@ class HistoryView(ctk.CTkFrame):
             
             # Highlight target zone
             ax.axhspan(18.5, 25.0, color='#76C893', alpha=0.1, label="Healthy Zone")
+            ax.legend(facecolor=fig_bg, edgecolor=grid_color, labelcolor=text_color, loc="upper right", framealpha=0.8, fontsize=9)
 
         plt.tight_layout()
 

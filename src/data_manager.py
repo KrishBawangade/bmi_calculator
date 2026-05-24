@@ -140,3 +140,8 @@ class DataManager:
             key=lambda r: r["date"],
             reverse=True
         )
+
+    def delete_history_record(self, record_id):
+        """Deletes a specific history record by its ID."""
+        self.history = [r for r in self.history if r["id"] != record_id]
+
