@@ -1,3 +1,4 @@
+import tkinter as tk
 from tkinter import messagebox
 import customtkinter as ctk
 import src.constants as const
@@ -14,6 +15,12 @@ class ProfilesView(ctk.CTkFrame):
         self.grid_columnconfigure(0, weight=2)
         self.grid_columnconfigure(1, weight=3)
         self.grid_rowconfigure(0, weight=1)
+
+        # Traced variables for form validation
+        self.name_var = tk.StringVar()
+        self.age_var = tk.StringVar()
+        self.name_var.trace_add("write", self.validate_name_on_type)
+        self.age_var.trace_add("write", self.validate_age_on_type)
 
         self.setup_left_form()
         self.setup_right_list()
@@ -42,13 +49,13 @@ class ProfilesView(ctk.CTkFrame):
         # Name Entry
         name_lbl = ctk.CTkLabel(form_frame, text="Full Name", font=ctk.CTkFont(size=13, weight="bold"), text_color=const.COLOR_TEXT)
         name_lbl.grid(row=1, column=0, padx=25, pady=(5, 2), sticky="w")
-        self.profile_name_entry = ctk.CTkEntry(form_frame, fg_color=const.COLOR_BG, border_color=const.COLOR_BORDER, text_color=const.COLOR_TEXT)
+        self.profile_name_entry = ctk.CTkEntry(form_frame, fg_color=const.COLOR_BG, border_color=const.COLOR_BORDER, text_color=const.COLOR_TEXT, textvariable=self.name_var)
         self.profile_name_entry.grid(row=2, column=0, padx=25, pady=(0, 15), sticky="ew")
 
         # Age Entry
         age_lbl = ctk.CTkLabel(form_frame, text="Age (years)", font=ctk.CTkFont(size=13, weight="bold"), text_color=const.COLOR_TEXT)
         age_lbl.grid(row=3, column=0, padx=25, pady=(5, 2), sticky="w")
-        self.profile_age_entry = ctk.CTkEntry(form_frame, fg_color=const.COLOR_BG, border_color=const.COLOR_BORDER, text_color=const.COLOR_TEXT)
+        self.profile_age_entry = ctk.CTkEntry(form_frame, fg_color=const.COLOR_BG, border_color=const.COLOR_BORDER, text_color=const.COLOR_TEXT, textvariable=self.age_var)
         self.profile_age_entry.grid(row=4, column=0, padx=25, pady=(0, 15), sticky="ew")
 
         # Gender Entry
@@ -114,12 +121,13 @@ class ProfilesView(ctk.CTkFrame):
         active_id = self.get_active_user_id_cb()
 
         for uid, user in self.data_manager.users.items():
+            is_active = (uid == active_id)
             card = ctk.CTkFrame(
                 self.profiles_scroll, 
                 fg_color=const.COLOR_BG, 
                 corner_radius=10,
-                border_width=1,
-                border_color=const.COLOR_BORDER
+                border_width=2 if is_active else 1,
+                border_color=const.COLOR_ACCENT if is_active else const.COLOR_BORDER
             )
             card.pack(fill="x", pady=6, padx=5)
             
@@ -149,10 +157,10 @@ class ProfilesView(ctk.CTkFrame):
             meta_lbl.pack(fill="x")
 
             # Selection State Tag
-            if uid == active_id:
-                tag_frame = ctk.CTkFrame(card, fg_color=const.COLOR_BORDER, corner_radius=10, height=22)
+            if is_active:
+                tag_frame = ctk.CTkFrame(card, fg_color=const.COLOR_ACCENT, corner_radius=10, height=22)
                 tag_frame.pack(side="right", padx=(0, 10))
-                tag_lbl = ctk.CTkLabel(tag_frame, text="Active", text_color=const.COLOR_TEXT, font=ctk.CTkFont(size=10, weight="bold"), padx=8)
+                tag_lbl = ctk.CTkLabel(tag_frame, text="Active", text_color="#FFFFFF", font=ctk.CTkFont(size=10, weight="bold"), padx=8)
                 tag_lbl.pack()
 
             # Delete Button
@@ -169,30 +177,69 @@ class ProfilesView(ctk.CTkFrame):
             )
             delete_btn.pack(side="right", padx=15)
 
+            # Bind click events on all child elements to select profile
+            for widget in [card, icon_frame, icon_lbl, info_frame, name_lbl, meta_lbl]:
+                widget.bind("<Button-1>", lambda e, target_id=uid: self.activate_profile(target_id))
+            if is_active:
+                tag_frame.bind("<Button-1>", lambda e, target_id=uid: self.activate_profile(target_id))
+                tag_lbl.bind("<Button-1>", lambda e, target_id=uid: self.activate_profile(target_id))
+
+    def validate_name_on_type(self, *args):
+        name = self.name_var.get().strip()
+        if len(name) >= 2:
+            self.profile_name_entry.configure(border_color=const.COLOR_BORDER)
+
+    def validate_age_on_type(self, *args):
+        age_str = self.age_var.get().strip()
+        try:
+            age = int(age_str)
+            if 1 <= age <= 120:
+                self.profile_age_entry.configure(border_color=const.COLOR_BORDER)
+        except ValueError:
+            pass
+
+    def activate_profile(self, user_id):
+        """Tells root application to switch active profile."""
+        app = self.winfo_toplevel()
+        if hasattr(app, "on_user_switch"):
+            app.on_user_switch(user_id)
+            self.refresh_profiles_list()
+
     def create_profile(self):
         """Fetches form inputs, validates, and updates outer context."""
-        name = self.profile_name_entry.get().strip()
-        age_str = self.profile_age_entry.get().strip()
+        name = self.name_var.get().strip()
+        age_str = self.age_var.get().strip()
         gender = self.profile_gender_select.get()
 
-        if not name:
-            messagebox.showwarning("Validation Error", "Please provide a valid full name.")
-            return
+        valid = True
         
+        # Validate name
+        if len(name) < 2:
+            self.profile_name_entry.configure(border_color="#E76F51") # red error border
+            valid = False
+        else:
+            self.profile_name_entry.configure(border_color=const.COLOR_BORDER)
+            
+        # Validate age
         try:
             age = int(age_str)
             if age <= 0 or age > 120:
                 raise ValueError
+            self.profile_age_entry.configure(border_color=const.COLOR_BORDER)
         except ValueError:
-            messagebox.showwarning("Validation Error", "Please enter a valid age between 1 and 120.")
+            self.profile_age_entry.configure(border_color="#E76F51") # red error border
+            valid = False
+
+        if not valid:
+            messagebox.showwarning("Validation Error", "Please fill in all fields with valid information.")
             return
 
         # Let parent handle state insertion
         self.on_user_create_cb(name, age, gender)
 
         # Clear entries
-        self.profile_name_entry.delete(0, "end")
-        self.profile_age_entry.delete(0, "end")
+        self.name_var.set("")
+        self.age_var.set("")
         self.profile_gender_select.set("Female")
 
     def delete_profile(self, user_id):
