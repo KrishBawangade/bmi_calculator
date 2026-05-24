@@ -27,8 +27,12 @@ class CalculatorView(ctk.CTkFrame):
         self.height_var.trace_add("write", self.on_height_entry_change)
         self.weight_var.trace_add("write", self.on_weight_entry_change)
         
+        # Bind FocusOut event for stricter validations when user leaves field
+        self.height_entry.bind("<FocusOut>", lambda e: self.on_entry_focus_out(self.height_var, self.height_entry, "height"))
+        self.weight_entry.bind("<FocusOut>", lambda e: self.on_entry_focus_out(self.weight_var, self.weight_entry, "weight"))
+        
         # Trigger initial calculation
-        self.recalculate_bmi()
+        self.recalculate_bmi(force_validate=False)
 
     def setup_left_inputs(self):
         input_frame = ctk.CTkFrame(
@@ -251,14 +255,14 @@ class CalculatorView(ctk.CTkFrame):
         )
         self.score_status_lbl.grid(row=1, column=0)
 
-        # Gauge Canvas
-        self.gauge_container = ctk.CTkFrame(result_frame, fg_color="transparent", height=70)
+        # Gauge Canvas (adjusted heights to prevent cropping of label texts)
+        self.gauge_container = ctk.CTkFrame(result_frame, fg_color="transparent", height=95)
         self.gauge_container.grid(row=2, column=0, padx=25, pady=10, sticky="ew")
         self.gauge_container.grid_propagate(False)
 
         self.gauge_canvas = ctk.CTkCanvas(
             self.gauge_container, 
-            height=60, 
+            height=85, 
             highlightthickness=0
         )
         self.gauge_canvas.pack(fill="both", expand=True)
@@ -354,35 +358,60 @@ class CalculatorView(ctk.CTkFrame):
         self.height_slider.set(new_h)
         self.weight_slider.set(new_w)
         
-        self.recalculate_bmi()
+        self.recalculate_bmi(force_validate=False)
+
+    def validate_field(self, var, entry, limits, force_error=False):
+        """Helper to validate input and highlight border red if invalid."""
+        val_str = var.get().strip()
+        if not val_str:
+            if force_error:
+                entry.configure(border_color="#E76F51") # red error border
+            return None
+        try:
+            val = float(val_str)
+            if limits["min"] <= val <= limits["max"]:
+                entry.configure(border_color=const.COLOR_BORDER) # restore default border
+                return val
+            else:
+                # Turn red immediately if full value typed exceeds length or force requested
+                if force_error or len(val_str) >= len(str(int(limits["max"]))):
+                    entry.configure(border_color="#E76F51")
+                return None
+        except ValueError:
+            if force_error:
+                entry.configure(border_color="#E76F51")
+            return None
+
+    def on_entry_focus_out(self, var, entry, field_name):
+        """Validates entry fields when focus is lost."""
+        limits = const.RANGE_METRIC[field_name] if self.unit_toggle.get() == "Metric" else const.RANGE_IMPERIAL[field_name]
+        self.validate_field(var, entry, limits, force_error=True)
 
     def on_height_slider_move(self, value):
         self.height_var.set(f"{value:.1f}")
-        self.recalculate_bmi()
+        # When moving slider, field is always valid, so restore border color
+        self.height_entry.configure(border_color=const.COLOR_BORDER)
+        self.recalculate_bmi(force_validate=False)
 
     def on_weight_slider_move(self, value):
         self.weight_var.set(f"{value:.1f}")
-        self.recalculate_bmi()
+        # When moving slider, field is always valid, so restore border color
+        self.weight_entry.configure(border_color=const.COLOR_BORDER)
+        self.recalculate_bmi(force_validate=False)
 
     def on_height_entry_change(self, *args):
-        try:
-            val = float(self.height_var.get())
-            limits = const.RANGE_METRIC["height"] if self.unit_toggle.get() == "Metric" else const.RANGE_IMPERIAL["height"]
-            if limits["min"] <= val <= limits["max"]:
-                self.height_slider.set(val)
-                self.recalculate_bmi()
-        except ValueError:
-            pass
+        limits = const.RANGE_METRIC["height"] if self.unit_toggle.get() == "Metric" else const.RANGE_IMPERIAL["height"]
+        val = self.validate_field(self.height_var, self.height_entry, limits, force_error=False)
+        if val is not None:
+            self.height_slider.set(val)
+            self.recalculate_bmi(force_validate=False)
 
     def on_weight_entry_change(self, *args):
-        try:
-            val = float(self.weight_var.get())
-            limits = const.RANGE_METRIC["weight"] if self.unit_toggle.get() == "Metric" else const.RANGE_IMPERIAL["weight"]
-            if limits["min"] <= val <= limits["max"]:
-                self.weight_slider.set(val)
-                self.recalculate_bmi()
-        except ValueError:
-            pass
+        limits = const.RANGE_METRIC["weight"] if self.unit_toggle.get() == "Metric" else const.RANGE_IMPERIAL["weight"]
+        val = self.validate_field(self.weight_var, self.weight_entry, limits, force_error=False)
+        if val is not None:
+            self.weight_slider.set(val)
+            self.recalculate_bmi(force_validate=False)
 
     def on_dropdown_select(self, val):
         for uid, user_data in self.data_manager.users.items():
@@ -390,19 +419,24 @@ class CalculatorView(ctk.CTkFrame):
                 self.on_user_switch_cb(uid)
                 break
 
-    def recalculate_bmi(self):
+    def recalculate_bmi(self, force_validate=True):
         """Performs math calculation and updates output fields."""
-        try:
-            h = float(self.height_var.get())
-            w = float(self.weight_var.get())
-            
-            bmi = self.data_manager.calculate_bmi(w, h, self.unit_toggle.get())
-        except ValueError:
+        limits_h = const.RANGE_METRIC["height"] if self.unit_toggle.get() == "Metric" else const.RANGE_IMPERIAL["height"]
+        limits_w = const.RANGE_METRIC["weight"] if self.unit_toggle.get() == "Metric" else const.RANGE_IMPERIAL["weight"]
+        
+        # Verify inputs
+        h = self.validate_field(self.height_var, self.height_entry, limits_h, force_error=force_validate)
+        w = self.validate_field(self.weight_var, self.weight_entry, limits_w, force_error=force_validate)
+
+        if h is None or w is None:
             self.score_val_lbl.configure(text="--")
             self.score_status_lbl.configure(text="INVALID INPUT", text_color="#E76F51")
-            self.desc_lbl.configure(text="Please key in positive weight and height values.")
+            self.desc_lbl.configure(text="Please key in positive weight and height values within standard limits.")
+            self.draw_gauge(current_bmi=22.0) # default/empty marker position
             return
 
+        # Perform calculation
+        bmi = self.data_manager.calculate_bmi(w, h, self.unit_toggle.get())
         self.score_val_lbl.configure(text=f"{bmi:.1f}", text_color=const.COLOR_ACCENT)
         
         info = self.data_manager.classify_bmi(bmi)
@@ -437,16 +471,22 @@ class CalculatorView(ctk.CTkFrame):
         if w < 100:
             w = 340
         if h < 20:
-            h = 60
+            h = 85
 
+        # Re-adjusted coordinates to prevent vertical cropping
         margin_x = 15
-        bar_y = h - 25
-        bar_height = 12
+        bar_y = 35
+        bar_height = 14
 
         usable_w = w - (margin_x * 2)
         zone_w = usable_w / 4
 
         is_dark = ctk.get_appearance_mode() == "Dark"
+        
+        # Configure background color dynamically to blend with Card Frame
+        bg_color = const.COLOR_CARD_BG[1] if is_dark else const.COLOR_CARD_BG[0]
+        canvas.configure(bg=bg_color, highlightbackground=bg_color)
+        
         c_under = const.COLOR_UNDERWEIGHT[1] if is_dark else const.COLOR_UNDERWEIGHT[0]
         c_norm = const.COLOR_NORMAL[1] if is_dark else const.COLOR_NORMAL[0]
         c_over = const.COLOR_OVERWEIGHT[1] if is_dark else const.COLOR_OVERWEIGHT[0]
@@ -460,12 +500,12 @@ class CalculatorView(ctk.CTkFrame):
         canvas.create_rectangle(margin_x + (zone_w * 2), bar_y, margin_x + (zone_w * 3), bar_y + bar_height, fill=c_over, outline="")
         canvas.create_rectangle(margin_x + (zone_w * 3), bar_y, margin_x + usable_w, bar_y + bar_height, fill=c_obese, outline="")
 
-        # Draw labels
-        canvas.create_text(margin_x, bar_y + bar_height + 10, text="15", fill=c_muted, font=("Helvetica", 9))
-        canvas.create_text(margin_x + zone_w, bar_y + bar_height + 10, text="18.5", fill=c_muted, font=("Helvetica", 9))
-        canvas.create_text(margin_x + (zone_w * 2), bar_y + bar_height + 10, text="25", fill=c_muted, font=("Helvetica", 9))
-        canvas.create_text(margin_x + (zone_w * 3), bar_y + bar_height + 10, text="30", fill=c_muted, font=("Helvetica", 9))
-        canvas.create_text(margin_x + usable_w, bar_y + bar_height + 10, text="40", fill=c_muted, font=("Helvetica", 9))
+        # Draw labels (lowered to y=68 to prevent clipping)
+        canvas.create_text(margin_x, bar_y + bar_height + 15, text="15", fill=c_muted, font=("Helvetica", 9))
+        canvas.create_text(margin_x + zone_w, bar_y + bar_height + 15, text="18.5", fill=c_muted, font=("Helvetica", 9))
+        canvas.create_text(margin_x + (zone_w * 2), bar_y + bar_height + 15, text="25", fill=c_muted, font=("Helvetica", 9))
+        canvas.create_text(margin_x + (zone_w * 3), bar_y + bar_height + 15, text="30", fill=c_muted, font=("Helvetica", 9))
+        canvas.create_text(margin_x + usable_w, bar_y + bar_height + 15, text="40", fill=c_muted, font=("Helvetica", 9))
 
         # Needle position
         bmi = current_bmi
@@ -487,7 +527,7 @@ class CalculatorView(ctk.CTkFrame):
                 p = (bmi - 30.0) / (40.0 - 30.0)
                 needle_x = margin_x + (zone_w * 3) + p * zone_w
 
-        # Draw needle
+        # Draw needle (y-coordinates adjusted)
         canvas.create_polygon(
             needle_x, bar_y - 2,
             needle_x - 6, bar_y - 12,
@@ -495,14 +535,30 @@ class CalculatorView(ctk.CTkFrame):
             fill=c_text, outline=""
         )
         canvas.create_line(needle_x, bar_y - 2, needle_x, bar_y + bar_height + 2, fill=c_text, width=2)
+        
+        # Display the calculated BMI value as text directly above the needle
+        canvas.create_text(
+            needle_x, 
+            bar_y - 20, 
+            text=f"{bmi:.1f}", 
+            fill=c_text, 
+            font=("Helvetica", 10, "bold")
+        )
 
     def save_record(self):
-        """Sends height/weight/bmi details to outer record saver."""
+        """Sends height/weight/bmi details to outer record saver with validation check."""
+        self.recalculate_bmi(force_validate=True)
+        
         try:
             h = float(self.height_var.get())
             w = float(self.weight_var.get())
-            bmi = float(self.score_val_lbl.cget("text"))
+            bmi_text = self.score_val_lbl.cget("text")
+            if bmi_text == "--":
+                raise ValueError
+            bmi = float(bmi_text)
         except ValueError:
+            from tkinter import messagebox
+            messagebox.showwarning("Validation Error", "Please key in valid height and weight measurements first.")
             return
             
         self.on_save_record(w, h, bmi, self.score_status_lbl.cget("text").title())
